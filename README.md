@@ -7,10 +7,9 @@ You may need to use Nuget to download the packages ColorHelper, ZstdSharp.Port v
 ## How to use
 Once things are set up, you'll need to do a few things in Program.cs: 
  - Set the path to the mappings file
- - Set the path to a folder with the assets you want to edit
-	- I recommend copying the base assets into a uassets/ folder and within it using the whole directory structure starting from Marvel/
- 		- The output files will be generated with the same directory structure 
+ - Copy any assets to be edited into bin/Debug/net8.0/uassets/ using the whole directory structure starting from Marvel/Content/Marvel
  - Generate a list of targets to modify
-	- There are two functions in Program.cs, starting with "SampleTargetGenerator" for a basic and advanced tutorial on how to do this
- 	- I also included the full function I use for generating my material targets for Magik's Eldritch Armor
+ 	- Extend the MaterialTargetGenerator class and override GenerateTargets()
+	- For tutorials on how this works, see ExampleTargetGenerator_Basic and ExampleTargetGenerator_Advanced
+ 	- I've also included several full functions I made for different batch processes, such as for Magik's Eldritch Armor
    
