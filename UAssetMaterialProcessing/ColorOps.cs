@@ -7,7 +7,7 @@ using ColorHelper;
 /// NOTE: When messing with these, be very careful about what kind of data you're working with.<br/>
 /// float[] represents RGB arrays where each value is a float from 0 to 1; the I/O of these methods
 ///  generally uses this since it's what's used by the Unreal assets.<br/>
-/// RGB data type uses bytes, which instead range from 0 to 255.<br/>
+/// RGB data type uses bytes, instead ranging from 0 to 100.<br/>
 /// HSL data type uses bytes for S and L, and for H it uses an int from 0 to 359 (representing the 360-degree color wheel)
 /// </summary>
 class ColorOps {
@@ -20,12 +20,9 @@ class ColorOps {
     /// <param name="operation"></param>
     /// <returns>The modified rgb float[] with max intensity preserved.</returns>
     public static float[] NormalizeThenFunctionThenUnnormalize(float[] rgb, Func<float[], float[]> operation) {
-        float maxChannelVal = Math.Max(Math.Max(rgb[0], rgb[1]), rgb[2]);
-        // Normalize max value to 1
-        float[] normalized = rgb;
-        if (maxChannelVal > 1) {
-            normalized = [rgb[0] / maxChannelVal, rgb[1] / maxChannelVal, rgb[2] / maxChannelVal];
-        }
+        float maxChannelVal;
+        // first multiply values by 1000 to ensure we dont get float underflow
+        float[] normalized = NormalizeRGB(rgb, out maxChannelVal);
         // Perform operation
         float[] modified = operation(normalized);
         // Un-normalize based on original intensity
@@ -45,6 +42,7 @@ class ColorOps {
     /// <returns>The modified rgb float[]</returns>
     public static float[] ModifyHSL(
         float[] rgb,
+        Func<HSL, HSL>? ModifyHSL = null,
         Func<int, int>? ModifyH = null,
         Func<byte, byte>? ModifyS = null,
         Func<byte, byte>? ModifyL = null
@@ -57,7 +55,7 @@ class ColorOps {
 
         // Short-circuit:
         // Original color is a shade of gray, and we're not targeting L (which is the only HSL channel gray uses)
-        if (ModifyL == null && clampedR == clampedG && clampedG == clampedB) {
+        if ((ModifyHSL == null && ModifyL == null) && clampedR == clampedG && clampedG == clampedB) {
             return [clampedR, clampedG, clampedB];
         }
 
@@ -65,15 +63,24 @@ class ColorOps {
         RGB colorRGB = new RGB((byte)(Math.Round(clampedR * 255)), (byte)Math.Round(clampedG * 255), (byte)Math.Round(clampedB * 255));
         HSL colorHSL = ColorConverter.RgbToHsl(colorRGB);
 
-        if (ModifyH != null) {
-            colorHSL.H = (int)ModifyH(colorHSL.H);
+        Console.WriteLine($"\t\t\tHSL: {colorHSL.H} {colorHSL.S} {colorHSL.L}");
+
+        if (ModifyHSL != null) {
+            colorHSL = ModifyHSL(colorHSL);
+            Console.WriteLine($"{colorHSL.H} {colorHSL.S} {colorHSL.L}");
+        } else {
+            if (ModifyH != null) {
+                colorHSL.H = (int)ModifyH(colorHSL.H);
+            }
+            if (ModifyS != null) {
+                colorHSL.S = (byte)ModifyS(colorHSL.S);
+            }
+            if (ModifyL != null) {
+                colorHSL.L = (byte)ModifyL(colorHSL.L);
+            }
         }
-        if (ModifyS != null) {
-            colorHSL.S = (byte)ModifyS(colorHSL.S);
-        }
-        if (ModifyL != null) {
-            colorHSL.L = (byte)ModifyL(colorHSL.L);
-        }
+
+        Console.WriteLine($"\t\t\tHSL: {colorHSL.H} {colorHSL.S} {colorHSL.L}");
 
         // convert back to RGB
         RGB targetRGB = ColorConverter.HslToRgb(colorHSL);
@@ -172,5 +179,121 @@ class ColorOps {
     private static float Clamp(float value) {
         //return ClampHelper.Clamp(value, 0, 1);
         return Math.Clamp(value, 0, 1);
+    }
+
+    public static float[] NormalizeRGB(float[] rgb) {
+        float[] normalized = NormalizeRGB(rgb, out _);
+        return normalized;
+    }
+    public static float[] NormalizeRGB(float[] rgb, out float factor) {
+        float maxChannelVal = Math.Max(Math.Max(rgb[0], rgb[1]), rgb[2]);
+        // Normalize max value to 1
+        float[] normalized = rgb;
+        if (maxChannelVal != 0) {
+            normalized = [rgb[0] / maxChannelVal, rgb[1] / maxChannelVal, rgb[2] / maxChannelVal];
+            factor = maxChannelVal;
+        } else {
+            factor = 1;
+        }
+
+        return normalized;
+    }
+
+    public static HSL RGBtoHSL(float[] rgb) {
+        float[] normalized = NormalizeRGB(rgb);
+        RGB colorRGB = new RGB((byte)(Math.Round(normalized[0] * 255)), (byte)Math.Round(normalized[1] * 255), (byte)Math.Round(normalized[2] * 255));
+        HSL colorHSL = ColorConverter.RgbToHsl(colorRGB);
+
+        return colorHSL;
+    }
+
+    public static string GetColorName(float[] rgb) {
+        float[] normalized = NormalizeRGB(rgb);
+        RGB colorRGB = new RGB((byte)(Math.Round(normalized[0] * 255)), (byte)Math.Round(normalized[1] * 255), (byte)Math.Round(normalized[2] * 255));
+        HSL colorHSL = ColorConverter.RgbToHsl(colorRGB);
+
+        return GetColorName(colorHSL);
+    }
+
+    public static string GetColorName(HSL hsl) {
+        string retVal = "";
+        if (hsl.L == 0) {
+            return "black";
+        }
+        if (hsl.L == 100) {
+            return "white";
+        }
+        if (hsl.L <= 33) {
+            retVal += "dark";
+        } else if (hsl.L > 66) {
+            retVal += "light";
+        }
+        if (hsl.S == 0) {
+            return retVal + "gray";
+        }
+        string[] colors = ["red", "orange", "yellow", "lime", "green", "mint", "cyan", "azure", "blue", "purple", "magenta", "rose"];
+        // Hue is adjusted so that 345 (the start of red) becomes 0, then we will check increments of 30
+        int adjustedHue = (hsl.H + 15) % 360;
+        for (int i = 0; i < colors.Length; i++) {
+            if (adjustedHue < i*30+30) {
+                return retVal + colors[i];
+            }
+        }
+        return "error";
+    }
+
+    /// <summary>
+    /// Map a value, originally on a linear scale from 0 to 1, to a new scale with the given pivot "key" value.<br/>
+    /// Basically you change the points of the linear curve from [0, 0.5, 1] to [0, value, 1].<br/>
+    /// In other words, use this to modify the "center point" of a set of values.<br/>
+    /// Example: <br/>
+    /// Beginning set: [0,  0.1,  0.4,  0.6,  0.9,  1]<br/>
+    /// Call this function on each value, with a newPivot of 0.25<br/>
+    /// Resulting set: [0,  0.05, 0.2,  0.4,  0.8,  1]<br/>
+    /// Or call the function with a newPivot of 0.25...<br/>
+    /// Resulting set: [0,  0.15, 0.6,  0.8,  0.95, 1]<br/>
+    /// <br/>
+    /// Remember to convert to and from a float from 0 to 1 if you're starting with eg. a byte
+    /// </summary>
+    /// <param name="value"></param>
+    /// <param name="newPivot"></param>
+    /// <param name="oldPivot">Untested default parameter; change to compute the old pivot as being somewhere besides the center</param>
+    /// <returns></returns>
+    /// <exception cref="ArgumentOutOfRangeException"></exception>
+    public static float ShiftValueInRangeByPivot(float value, float newPivot, float oldPivot = 0.5f) {
+        // error check
+        if (value < 0 || value > 1) {
+            throw new ArgumentOutOfRangeException("value is out of range");
+        }
+        if (oldPivot < 0 || oldPivot > 1 ) {
+            throw new ArgumentOutOfRangeException("oldPivot is out of range");
+        }
+        if (newPivot < 0 || newPivot > 1) {
+            throw new ArgumentOutOfRangeException("newPivot is out of range");
+        }
+
+        // remap
+        if (value <= oldPivot) {
+            // value is between min and original pivot
+
+            // Determine relative position within segment
+            float relPos = value / oldPivot;
+            // Scale the value onto the new segment
+            float absPosOnNewSegment = relPos * newPivot;
+            return absPosOnNewSegment;
+        }
+        else {
+            // value is between original pivot and max
+
+            // Shift placement down to pretend oldPivot is 0
+            float absPosOnOldSegment = value - oldPivot;
+            // Determine relative position within segment
+            float relPos = absPosOnOldSegment / (1 - oldPivot);
+            // Scale the value onto the new segment
+            float absPosOnNewSegment = relPos * (1 - newPivot);
+            // Shift it back up based on the segment's start position
+            float finalPosition = absPosOnNewSegment + newPivot;
+            return finalPosition;
+        }
     }
 }
